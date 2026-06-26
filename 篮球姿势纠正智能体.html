@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover" />
+    <title>🏀 AI篮球教练 · Temporal工作流 · 智能决策分支</title>
+    <!-- MediaPipe Pose -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <style>
+        :root {
+            --bg-deep: #0b0f1c;
+            --bg-card: #0f1424;
+            --surface: #141b30;
+            --text: #e4e8f1;
+            --text-secondary: #a0aac0;
+            --accent-blue: #00a6ff;
+            --accent-cyan: #00e5ff;
+            --accent-silver: #b8c7e0;
+            --border: #1f2a44;
+            --border-glow: #2e3d64;
+            --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6);
+            --radius: 20px;
+            --radius-sm: 12px;
+            --glow-cyan: 0 0 12px rgba(0, 229, 255, 0.35);
+            --glow-blue: 0 0 18px rgba(0, 166, 255, 0.45);
+            --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+            --decision-excellent: #00d4aa;
+            --decision-good: #f0c45a;
+            --decision-improve: #ff6b6b;
+        }
+        * { box-sizing: border-box; margin:0; padding:0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: radial-gradient(circle at 20% 10%, #1a2340 0%, #0b0f1c 70%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 20px 16px 40px;
+            color: var(--text);
+        }
+        .app-container { width:100%; max-width:760px; display:flex; flex-direction:column; gap:20px; }
+        .header { text-align:center; padding:10px 0 0; }
+        .header h1 { font-size:clamp(1.6rem,5vw,2rem); font-weight:700; background:linear-gradient(135deg,#ffffff 10%,#b0d4ff 70%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; filter:drop-shadow(0 0 8px rgba(0,166,255,0.5)); }
+        .badge { display:inline-block; background:rgba(0,166,255,0.15); border:1px solid rgba(0,229,255,0.5); color:#a0e9ff; font-size:0.7rem; font-weight:600; padding:4px 12px; border-radius:20px; backdrop-filter:blur(8px); box-shadow:var(--glow-cyan); letter-spacing:0.5px; }
+        .subtitle { font-size:0.85rem; color:var(--text-secondary); margin-top:6px; display:flex; align-items:center; justify-content:center; gap:6px; flex-wrap:wrap; }
+        .card { background:var(--bg-card); border-radius:var(--radius); padding:20px 18px; box-shadow:var(--shadow-lg); border:1px solid var(--border); backdrop-filter:blur(12px); position:relative; overflow:hidden; transition:0.25s; }
+        .card::before { content:''; position:absolute; top:0; left:0; width:100%; height:2px; background:linear-gradient(90deg,transparent,var(--accent-cyan),var(--accent-blue),transparent); opacity:0.7; }
+        .card-title { font-size:0.95rem; font-weight:700; color:#dbe4f5; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+        .camera-box { width:100%; aspect-ratio:16/9; background:#0a0e1a; border-radius:var(--radius-sm); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden; box-shadow:inset 0 0 30px rgba(0,0,0,0.8); }
+        .camera-box video, .camera-box img { width:100%; height:100%; object-fit:cover; border-radius:var(--radius-sm); }
+        .camera-placeholder { display:flex; flex-direction:column; align-items:center; gap:10px; color:#3b4b6e; font-weight:500; font-size:0.9rem; }
+        .camera-placeholder .icon { font-size:3rem; filter:drop-shadow(0 0 8px #004466); }
+        .btn-group { display:flex; gap:12px; margin-top:14px; flex-wrap:wrap; }
+        .btn { background:rgba(20,30,55,0.8); border:1px solid var(--border); color:var(--accent-silver); padding:10px 18px; border-radius:40px; font-weight:600; font-size:0.9rem; backdrop-filter:blur(10px); cursor:pointer; transition:0.25s; display:flex; align-items:center; gap:6px; letter-spacing:0.4px; box-shadow:0 4px 10px rgba(0,0,0,0.4); }
+        .btn-primary { background:linear-gradient(135deg,#004a7c,#002c4f); border-color:#0077b6; color:white; box-shadow:var(--glow-blue); }
+        .btn-primary:hover { background:linear-gradient(135deg,#005f9e,#003b66); border-color:#00a6ff; box-shadow:0 0 18px #00a6ff88; }
+        .btn-outline:hover { border-color:var(--accent-cyan); color:white; background:rgba(0,166,255,0.15); }
+        .stats-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; margin-top:10px; }
+        .stat-item { background:var(--surface); border-radius:var(--radius-sm); padding:14px 12px; border:1px solid var(--border); text-align:center; }
+        .stat-label { font-size:0.7rem; text-transform:uppercase; letter-spacing:1px; color:var(--text-secondary); }
+        .stat-value { font-size:1.8rem; font-weight:700; color:var(--accent-cyan); font-family:var(--font-mono); text-shadow:0 0 10px #00e5ff80; }
+        #fileInput, #videoFileInput { display:none; }
+        .workflow-badge { background:#1b2640; border-radius:20px; padding:4px 14px; font-size:0.7rem; color:var(--accent-cyan); border:1px solid #2a3d6a; display:inline-block; margin-top:6px; }
+        .decision-banner { margin-top:12px; padding:12px 16px; border-radius:12px; font-weight:600; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+        .decision-excellent { background:rgba(0,212,170,0.2); border-left:4px solid var(--decision-excellent); color:var(--decision-excellent); }
+        .decision-good { background:rgba(240,196,90,0.2); border-left:4px solid var(--decision-good); color:var(--decision-good); }
+        .decision-improve { background:rgba(255,107,107,0.2); border-left:4px solid var(--decision-improve); color:var(--decision-improve); }
+        .decision-unknown { background:rgba(160,170,192,0.2); border-left:4px solid var(--accent-silver); color:var(--accent-silver); }
+        .node-flow { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+        .node-pill { background:#1a2340; padding:4px 12px; border-radius:20px; font-size:0.7rem; color:#8899bb; border:1px solid #2a3d6a; }
+        .node-pill.active { border-color:var(--accent-cyan); color:var(--accent-cyan); box-shadow:0 0 12px rgba(0,229,255,0.2); }
+        .node-pill.done { border-color:var(--decision-excellent); color:var(--decision-excellent); }
+        @media (max-width:480px) { .stats-grid { grid-template-columns:1fr; } .btn-group { flex-direction:column; } }
+        .status-msg { margin-top:8px; padding:8px 12px; border-radius:8px; background:#0d1225; font-size:0.8rem; color:#7a8aaa; }
+    </style>
+</head>
+<body>
+<div class="app-container">
+    <div class="header">
+        <div class="icon-row" style="display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap;">
+            <span style="font-size:2rem;">🏀</span>
+            <h1>AI 篮球教练</h1>
+            <span class="badge">Temporal 工作流</span>
+        </div>
+        <div class="subtitle">
+            智能投篮姿势检测 · <span>MediaPipe Pose</span> · <span>DeepSeek 大模型</span>
+            <span class="workflow-badge">🧠 8节点 · 智能判断分支</span>
+        </div>
+    </div>
+
+    <!-- 摄像头卡片 -->
+    <div class="card">
+        <div class="card-title"><i>📡</i> 动作捕捉 · 工作流节点可视化</div>
+        <div class="camera-box" id="cameraContainer">
+            <div class="camera-placeholder" id="placeholderUI">
+                <span class="icon">🎥</span>
+                <span>摄像头/图片/视频未加载</span>
+                <span class="text-muted">选择模式开始分析</span>
+            </div>
+            <video id="inputVideo" autoplay playsinline style="display:none;"></video>
+            <img id="previewImage" style="display:none; object-fit:cover;">
+            <canvas id="outputCanvas" style="position:absolute; top:0; left:0; width:100%; height:100%;"></canvas>
+        </div>
+        <div class="btn-group">
+            <button class="btn btn-primary" id="startCameraBtn"><span>▶</span> 开启摄像头</button>
+            <button class="btn btn-outline" id="uploadImageBtn"><span>🖼️</span> 上传图片</button>
+            <button class="btn btn-outline" id="uploadVideoBtn"><span>🎬</span> 上传视频</button>
+            <button class="btn btn-outline" id="stopBtn"><span>⏹️</span> 停止</button>
+        </div>
+        <input type="file" id="fileInput" accept="image/*">
+        <input type="file" id="videoFileInput" accept="video/*">
+        
+        <div class="status-msg" id="statusMsg">🔄 系统就绪，请开启摄像头或上传文件</div>
+
+        <!-- 工作流节点状态 -->
+        <div class="node-flow" id="nodeFlow">
+            <span class="node-pill" data-node="0">① 捕捉</span>
+            <span class="node-pill" data-node="1">② 提取特征</span>
+            <span class="node-pill" data-node="2">③ 评分</span>
+            <span class="node-pill" data-node="3">④ DeepSeek</span>
+            <span class="node-pill" data-node="4">⑤ 🧠 判断分支</span>
+            <span class="node-pill" data-node="5">⑥ 执行决策</span>
+            <span class="node-pill" data-node="6">⑦ 更新UI</span>
+            <span class="node-pill" data-node="7">⑧ 日志记录</span>
+        </div>
+    </div>
+
+    <!-- 指标卡片 -->
+    <div class="card">
+        <div class="card-title"><i>📊</i> 投篮动作分析</div>
+        <div class="stats-grid">
+            <div class="stat-item"><div class="stat-label">肘角</div><div class="stat-value" id="kneeAngleDisplay">--°</div></div>
+            <div class="stat-item"><div class="stat-label">手臂伸展</div><div class="stat-value" id="armExtensionDisplay">--%</div></div>
+            <div class="stat-item"><div class="stat-label">躯干稳定</div><div class="stat-value" id="trunkStabilityDisplay">--</div></div>
+            <div class="stat-item"><div class="stat-label">AI评分</div><div class="stat-value" id="liveScoreDisplay" style="color:#f0c45a;">--</div></div>
+        </div>
+        <div style="margin-top:12px; font-size:0.8rem; color:#8e9cc0;" id="feedbackMessage">⚡ 等待姿势数据...</div>
+    </div>
+
+    <!-- 智能决策卡片 -->
+    <div class="card">
+        <div class="card-title"><i>🧠</i> 智能决策分支 <span style="font-size:0.7rem; color:var(--accent-cyan);">(基于DeepSeek输出判断)</span></div>
+        <div id="decisionBanner" class="decision-banner decision-unknown">
+            <span style="font-size:1.2rem;">⏳</span> 等待大模型决策...
+        </div>
+        <div style="display:flex; gap:12px; margin-top:12px; flex-wrap:wrap;">
+            <div style="background:#1b2640; border-radius:12px; padding:10px 14px; flex:1;">
+                <span style="color:var(--accent-cyan); font-weight:bold;">📐 角度建议</span>
+                <div class="text-muted" id="angleAdvice">启动中</div>
+            </div>
+            <div style="background:#1b2640; border-radius:12px; padding:10px 14px; flex:1;">
+                <span style="color:var(--accent-cyan); font-weight:bold;">⚡ 执行动作</span>
+                <div class="text-muted" id="execAction">等待决策</div>
+            </div>
+        </div>
+        <div style="margin-top:12px; background:#0f1a2b; padding:10px 14px; border-radius:12px; border-left:3px solid var(--accent-cyan);">
+            <span style="color:#b0c6ff; font-size:0.85rem;" id="deepseekRaw">🤖 DeepSeek: 等待分析结果...</span>
+        </div>
+    </div>
+
+    <!-- 排行榜 -->
+    <div class="card">
+        <div class="card-title"><i>🏆</i> 投篮排行榜 <span style="font-size:0.7rem; color:var(--accent-silver);">(模拟数据)</span></div>
+        <div class="leaderboard" style="margin-top:10px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid #1c2540; color:#cdd6f0;">
+                <span class="leader-rank" style="font-weight:700; color:var(--accent-silver); width:28px;">🥇</span>
+                <span style="flex:1; font-weight:500;">AI·Curry</span>
+                <span style="font-family:var(--font-mono); color:var(--accent-cyan);">98.2</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid #1c2540; color:#cdd6f0;">
+                <span class="leader-rank" style="font-weight:700; color:var(--accent-silver); width:28px;">🥈</span>
+                <span style="flex:1; font-weight:500;">深蓝·Kobe</span>
+                <span style="font-family:var(--font-mono); color:var(--accent-cyan);">95.7</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid #1c2540; color:#cdd6f0;">
+                <span class="leader-rank" style="font-weight:700; color:var(--accent-silver); width:28px;">🥉</span>
+                <span style="flex:1; font-weight:500;">Silver·Kyrie</span>
+                <span style="font-family:var(--font-mono); color:var(--accent-cyan);">93.4</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 0; color:#cdd6f0;">
+                <span class="leader-rank" style="font-weight:700; color:var(--accent-silver); width:28px;">4</span>
+                <span style="flex:1; font-weight:500;">你</span>
+                <span style="font-family:var(--font-mono); color:var(--accent-cyan);" id="userRankScore">--</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function(){
+    // ================================================================
+    // 1. Temporal 工作流引擎 (模拟)
+    // ================================================================
+    class TemporalWorkflowEngine {
+        constructor() {
+            this.workflows = new Map();
+            this.currentWorkflowId = null;
+            this.onStepUpdate = null;
+            this.onComplete = null;
+        }
+
+        async startWorkflow(workflowId, steps, initialContext = {}) {
+            const wf = {
+                state: 'RUNNING',
+                currentStepIndex: 0,
+                steps: steps,
+                context: { ...initialContext, workflowId },
+                history: [],
+                result: null,
+                decision: null
+            };
+            this.workflows.set(workflowId, wf);
+            this.currentWorkflowId = workflowId;
+            console.log(`[Temporal] 启动工作流: ${workflowId}, 步骤数: ${steps.length}`);
+            return this.runNextStep(workflowId);
+        }
+
+        async runNextStep(workflowId) {
+            const wf = this.workflows.get(workflowId);
+            if (!wf) return { error: 'workflow not found' };
+            if (wf.state !== 'RUNNING') return { state: wf.state, result: wf.result };
+
+            const stepIndex = wf.currentStepIndex;
+            if (stepIndex >= wf.steps.length) {
+                wf.state = 'COMPLETED';
+                wf.result = wf.context.lastResult || null;
+                console.log(`[Temporal] 工作流 ${workflowId} 完成`);
+                if (this.onStepUpdate) this.onStepUpdate(workflowId, -1, '完成', 'done');
+                if (this.onComplete) this.onComplete(wf.result);
+                return { state: 'COMPLETED', result: wf.result };
+            }
+
+            const step = wf.steps[stepIndex];
+            console.log(`[Temporal] 执行步骤 [${stepIndex+1}/${wf.steps.length}]: ${step.name}`);
+            if (this.onStepUpdate) this.onStepUpdate(workflowId, stepIndex, step.name, 'active');
+
+            try {
+                const result = await step.execute(wf.context);
+                wf.context.lastResult = result;
+                wf.history.push({ step: step.name, result, timestamp: Date.now() });
+                wf.currentStepIndex++;
+                if (this.onStepUpdate) this.onStepUpdate(workflowId, stepIndex, step.name, 'done');
+                return this.runNextStep(workflowId);
+            } catch (err) {
+                wf.state = 'FAILED';
+                console.error(`[Temporal] 步骤 ${step.name} 失败:`, err);
+                if (this.onStepUpdate) this.onStepUpdate(workflowId, stepIndex, step.name, 'failed');
+                return { error: err.message, state: 'FAILED' };
+            }
+        }
+    }
+
+    // ================================================================
+    // 2. DeepSeek API (真实)
+    // ================================================================
+    const DEEPSEEK_API_KEY = 'sk-你的DeepSeek密钥';  // 替换为真实密钥
+    const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions';
+
+    async function callDeepSeek(prompt) {
+        try {
+            // 如果没有配置密钥，使用模拟
+            if (DEEPSEEK_API_KEY === 'sk-你的DeepSeek密钥') {
+                console.warn('未配置DeepSeek密钥，使用模拟响应');
+                return getMockAdvice();
+            }
+            const response = await fetch(DEEPSEEK_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+                },
+                body: JSON.stringify({
+                    model: 'deepseek-chat',
+                    messages: [
+                        { role: 'system', content: '你是AI篮球教练，分析投篮姿势并给出专业建议。回复应包含对角度、节奏的具体评价。' },
+                        { role: 'user', content: prompt }
+                    ],
+                    temperature: 0.7,
+                    max_tokens: 200
+                })
+            });
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`DeepSeek API error: ${response.status} ${errText}`);
+            }
+            const data = await response.json();
+            return data.choices[0]?.message?.content || getMockAdvice();
+        } catch (e) {
+            console.warn('DeepSeek调用失败，使用模拟回复:', e);
+            return getMockAdvice();
+        }
+    }
+
+    function getMockAdvice() {
+        const fallbacks = [
+            '肘角偏大，建议保持在90-100°；手腕发力柔和，躯干保持稳定。',
+            '手臂伸展充分，出手流畅；注意手腕下压，增加球的旋转。',
+            '躯干前倾过多，重心后移；建议屈膝深一些，保持核心收紧。',
+            '动作连贯性良好，节奏适中；手肘对准篮筐方向。'
+        ];
+        return fallbacks[Math.floor(Math.random() * fallbacks.length)];
+    }
+
+    // ================================================================
+    // 3. 特征提取工具
+    // ================================================================
+    function extractFeatures(landmarks) {
+        const shR = landmarks[12], elR = landmarks[14], wrR = landmarks[16];
+        const shL = landmarks[11], hipL = landmarks[23], hipR = landmarks[24];
+        if (!shR || !elR || !wrR) return null;
+        const angle = calculateAngle(shR, elR, wrR);
+        const armDist = Math.hypot(wrR.x-shR.x, wrR.y-shR.y);
+        const armExt = Math.min(100, Math.round(armDist * 130));
+        const trunkDiff = Math.abs((shL.y+shR.y)/2 - (hipL.y+hipR.y)/2);
+        const trunkStable = trunkDiff < 0.07 ? "优秀" : trunkDiff < 0.15 ? "良好" : "前倾";
+        return { elbowAngle: angle, armExt, trunkStable };
+    }
+    function calculateAngle(a,b,c) {
+        const ba = {x:a.x-b.x, y:a.y-b.y};
+        const bc = {x:c.x-b.x, y:c.y-b.y};
+        const dot = ba.x*bc.x + ba.y*bc.y;
+        const mag = Math.hypot(ba.x,ba.y) * Math.hypot(bc.x,bc.y);
+        return mag === 0 ? 0 : Math.acos(dot/mag)*(180/Math.PI);
+    }
+    function detectPoseState(feat) {
+        if (feat.elbowAngle > 150) return "RELEASE";
+        if (feat.elbowAngle > 100) return "LIFT";
+        if (feat.armExt < 40) return "READY";
+        return "FOLLOW";
+    }
+    function calculateScore(feat) {
+        let s = 50;
+        if (feat.elbowAngle >= 90 && feat.elbowAngle <= 110) s += 25;
+        else if (feat.elbowAngle >= 80 && feat.elbowAngle <= 120) s += 15;
+        if (feat.armExt >= 70) s += 20;
+        else if (feat.armExt >= 50) s += 10;
+        if (feat.trunkStable === "优秀") s += 15;
+        else if (feat.trunkStable === "良好") s += 8;
+        return Math.min(99, Math.max(40, s));
+    }
+
+    // ================================================================
+    // 4. 工作流步骤定义 (8节点)
+    // ================================================================
+    function createWorkflowSteps() {
+        return [
+            {
+                name: 'capture_frame',
+                execute: async (ctx) => {
+                    const landmarks = ctx.landmarks;
+                    if (!landmarks) throw new Error('未检测到姿态');
+                    return { landmarks, timestamp: Date.now() };
+                }
+            },
+            {
+                name: 'extract_features',
+                execute: async (ctx) => {
+                    const { landmarks } = ctx.lastResult || ctx;
+                    const feat = extractFeatures(landmarks);
+                    if (!feat) throw new Error('特征提取失败');
+                    return { ...ctx.lastResult, features: feat };
+                }
+            },
+            {
+                name: 'calculate_score',
+                execute: async (ctx) => {
+                    const feat = ctx.lastResult?.features || ctx.features;
+                    const state = detectPoseState(feat);
+                    const score = calculateScore(feat);
+                    return { ...ctx.lastResult, poseState: state, score };
+                }
+            },
+            {
+                name: 'call_deepseek',
+                execute: async (ctx) => {
+                    const feat = ctx.lastResult?.features || ctx.features;
+                    const state = ctx.lastResult?.poseState || 'UNKNOWN';
+                    const prompt = `当前投篮姿态：肘角 ${feat.elbowAngle.toFixed(1)}°，手臂伸展 ${feat.armExt}%，躯干稳定性 ${feat.trunkStable}，动作阶段 ${state}。请给出简短的技术建议（角度、节奏各一句）。`;
+                    const advice = await callDeepSeek(prompt);
+                    return { ...ctx.lastResult, deepseekAdvice: advice };
+                }
+            },
+            {
+                name: 'deepseek_decision',
+                execute: async (ctx) => {
+                    const advice = ctx.lastResult?.deepseekAdvice || '';
+                    const score = ctx.lastResult?.score || 50;
+                    let decision, action, emoji;
+                    
+                    const lower = advice.toLowerCase();
+                    if (lower.includes('优秀') || lower.includes('完美') || lower.includes('出色') || score >= 85) {
+                        decision = 'EXCELLENT';
+                        action = '🏆 动作标准，进入排行榜Top3！建议增加投篮距离训练。';
+                        emoji = '🌟';
+                    } else if (lower.includes('良好') || lower.includes('不错') || lower.includes('可以') || score >= 70) {
+                        decision = 'GOOD';
+                        action = '📈 表现良好，微调手腕角度即可。建议多练习定点投篮。';
+                        emoji = '👍';
+                    } else if (lower.includes('肘') || lower.includes('手腕') || lower.includes('手臂') || score < 70) {
+                        decision = 'NEEDS_IMPROVEMENT';
+                        const detail = advice.substring(0, 40);
+                        action = `🔧 需要纠正：${detail}... 建议进行基础姿势训练。`;
+                        emoji = '💪';
+                    } else {
+                        decision = 'UNKNOWN';
+                        action = '🔄 数据不足，请重新采集动作。确保全身可见。';
+                        emoji = '⏳';
+                    }
+                    
+                    return { ...ctx.lastResult, decision, action, emoji };
+                }
+            },
+            {
+                name: 'execute_decision',
+                execute: async (ctx) => {
+                    const { decision, action, emoji } = ctx.lastResult;
+                    let uiAction = action;
+                    let rankUpdate = null;
+                    
+                    if (decision === 'EXCELLENT') {
+                        rankUpdate = '🏆 已更新排行榜！';
+                        uiAction = '🌟 ' + action;
+                    } else if (decision === 'GOOD') {
+                        rankUpdate = '📈 继续提升，接近Top3！';
+                        uiAction = '👍 ' + action;
+                    } else if (decision === 'NEEDS_IMPROVEMENT') {
+                        rankUpdate = '💪 针对性训练中...';
+                        uiAction = '💪 ' + action;
+                    } else {
+                        rankUpdate = '⏳ 等待更多数据';
+                        uiAction = '⏳ ' + action;
+                    }
+                    
+                    return { ...ctx.lastResult, uiAction, rankUpdate };
+                }
+            },
+            {
+                name: 'update_ui',
+                execute: async (ctx) => {
+                    const result = ctx.lastResult;
+                    updateUIFromWorkflow(result);
+                    return { ...result, uiUpdated: true };
+                }
+            },
+            {
+                name: 'log_workflow',
+                execute: async (ctx) => {
+                    const result = ctx.lastResult;
+                    console.log('[Workflow] 完成日志:', {
+                        decision: result.decision,
+                        score: result.score,
+                        advice: result.deepseekAdvice?.substring(0, 30)
+                    });
+                    return { ...result, logged: true };
+                }
+            }
+        ];
+    }
+
+    // ================================================================
+    // 5. UI更新函数
+    // ================================================================
+    function updateUIFromWorkflow(result) {
+        if (!result || !result.features) return;
+        const f = result.features;
+        document.getElementById('kneeAngleDisplay').textContent = f.elbowAngle.toFixed(1) + '°';
+        document.getElementById('armExtensionDisplay').textContent = f.armExt + '%';
+        document.getElementById('trunkStabilityDisplay').textContent = f.trunkStable;
+        document.getElementById('liveScoreDisplay').textContent = result.score || '--';
+        document.getElementById('userRankScore').textContent = (result.score || 0).toFixed(1);
+        
+        const state = result.poseState || 'UNKNOWN';
+        const advice = result.deepseekAdvice || '等待大模型建议...';
+        document.getElementById('deepseekRaw').textContent = '🤖 DeepSeek: ' + advice;
+        
+        const banner = document.getElementById('decisionBanner');
+        const decision = result.decision || 'UNKNOWN';
+        const action = result.uiAction || result.action || '等待决策';
+        const emoji = result.emoji || '⏳';
+        
+        banner.className = 'decision-banner';
+        if (decision === 'EXCELLENT') banner.classList.add('decision-excellent');
+        else if (decision === 'GOOD') banner.classList.add('decision-good');
+        else if (decision === 'NEEDS_IMPROVEMENT') banner.classList.add('decision-improve');
+        else banner.classList.add('decision-unknown');
+        
+        banner.innerHTML = `<span style="font-size:1.4rem;">${emoji}</span> 
+            <span><strong>决策: ${decision}</strong> — ${action}</span>`;
+        
+        if (advice) {
+            const parts = advice.split(/[，,。.]/);
+            let angle = '建议保持手肘90°';
+            let rhythm = '保持节奏稳定';
+            for (let p of parts) {
+                if (p.includes('肘') || p.includes('角') || p.includes('臂')) angle = p.trim();
+                if (p.includes('腕') || p.includes('节') || p.includes('速')) rhythm = p.trim();
+            }
+            document.getElementById('angleAdvice').textContent = angle;
+            document.getElementById('execAction').textContent = action.substring(0, 30) + (action.length > 30 ? '...' : '');
+        }
+        document.getElementById('feedbackMessage').textContent = `[${state}] 工作流完成，决策: ${decision}`;
+        document.getElementById('statusMsg').textContent = '✅ 工作流执行完成，决策: ' + decision;
+    }
+
+    function updateNodeFlow(stepIndex, stepName, status) {
+        const pills = document.querySelectorAll('.node-pill');
+        pills.forEach((pill, idx) => {
+            pill.classList.remove('active', 'done');
+            if (idx < stepIndex) pill.classList.add('done');
+            else if (idx === stepIndex && status === 'active') pill.classList.add('active');
+        });
+        if (stepIndex === -1) {
+            pills.forEach(p => p.classList.add('done'));
+        }
+    }
+
+    // ================================================================
+    // 6. MediaPipe 集成 (修复版)
+    // ================================================================
+    const videoElement = document.getElementById('inputVideo');
+    const previewImage = document.getElementById('previewImage');
+    const canvasElement = document.getElementById('outputCanvas');
+    const ctx = canvasElement.getContext('2d');
+    const placeholderUI = document.getElementById('placeholderUI');
+    const statusMsg = document.getElementById('statusMsg');
+    const startCameraBtn = document.getElementById('startCameraBtn');
+    const uploadImageBtn = document.getElementById('uploadImageBtn');
+    const uploadVideoBtn = document.getElementById('uploadVideoBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const fileInput = document.getElementById('fileInput');
+    const videoFileInput = document.getElementById('videoFileInput');
+
+    let poseInstance = null;
+    let cameraStream = null;
+    let animationFrameId = null;
+    let isProcessing = false;
+    let lastProcessTime = 0;
+    const engine = new TemporalWorkflowEngine();
+    engine.onStepUpdate = updateNodeFlow;
+
+    // 处理结果
+    function onPoseResults(results) {
+        ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        if (results.image) {
+            ctx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+        }
+        if (results.poseLandmarks && results.poseLandmarks.length > 0) {
+            drawSkeleton(results.poseLandmarks);
+            // 节流：每500ms处理一次
+            const now = Date.now();
+            if (now - lastProcessTime > 500) {
+                lastProcessTime = now;
+                const landmarks = results.poseLandmarks;
+                const workflowId = 'pose-' + Date.now();
+                const steps = createWorkflowSteps();
+                engine.startWorkflow(workflowId, steps, { landmarks: landmarks });
+                statusMsg.textContent = '🔄 工作流执行中...';
+            }
+        } else {
+            // 没有检测到姿态
+            document.getElementById('feedbackMessage').textContent = '⚠️ 未检测到人体姿态，请确保全身可见';
+        }
+    }
+
+    function drawSkeleton(landmarks) {
+        if (window.drawConnectors && window.drawLandmarks) {
+            window.drawConnectors(ctx, landmarks, window.POSE_CONNECTIONS, {color:'#00e5ff', lineWidth:3});
+            window.drawLandmarks(ctx, landmarks, {color:'#fff', radius:4});
+        }
+    }
+
+    async function initPose() {
+        if (typeof Pose === 'undefined') {
+            statusMsg.textContent = '❌ MediaPipe Pose 未加载，请检查网络';
+            console.error('MediaPipe Pose 未定义');
+            return null;
+        }
+        try {
+            const pose = new Pose({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+                }
+            });
+            pose.setOptions({
+                modelComplexity: 1,
+                smoothLandmarks: true,
+                enableSegmentation: false,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            pose.onResults(onPoseResults);
+            // 初始化加载模型
+            await pose.initialize();
+            statusMsg.textContent = '✅ MediaPipe Pose 已就绪';
+            return pose;
+        } catch (e) {
+            statusMsg.textContent = '❌ Pose 初始化失败: ' + e.message;
+            console.error('Pose init error:', e);
+            return null;
+        }
+    }
+
+    function cleanAll() {
+        if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+        }
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(t => t.stop());
+            cameraStream = null;
+        }
+        videoElement.pause();
+        videoElement.srcObject = null;
+        videoElement.style.display = 'none';
+        videoElement.src = '';
+        previewImage.style.display = 'none';
+        previewImage.src = '';
+        placeholderUI.style.display = 'flex';
+        isProcessing = false;
+        resetMetrics();
+        document.querySelectorAll('.node-pill').forEach(p => p.classList.remove('active', 'done'));
+        statusMsg.textContent = '🔄 系统已停止';
+    }
+
+    function resetMetrics() {
+        document.getElementById('kneeAngleDisplay').textContent = '--°';
+        document.getElementById('armExtensionDisplay').textContent = '--%';
+        document.getElementById('trunkStabilityDisplay').textContent = '--';
+        document.getElementById('liveScoreDisplay').textContent = '--';
+        document.getElementById('feedbackMessage').textContent = '⚡ 等待姿势数据...';
+        document.getElementById('angleAdvice').textContent = '启动中';
+        document.getElementById('execAction').textContent = '等待决策';
+        document.getElementById('userRankScore').textContent = '--';
+        document.getElementById('deepseekRaw').textContent = '🤖 DeepSeek: 等待分析结果...';
+        const banner = document.getElementById('decisionBanner');
+        banner.className = 'decision-banner decision-unknown';
+        banner.innerHTML = `<span style="font-size:1.2rem;">⏳</span> 等待大模型决策...`;
+    }
+
+    async function startCamera() {
+        cleanAll();
+        if (!poseInstance) {
+            poseInstance = await initPose();
+            if (!poseInstance) {
+                statusMsg.textContent = '❌ Pose 初始化失败，请刷新重试';
+                return;
+            }
+        }
+        try {
+            cameraStream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'user', width: 640, height: 480 } 
+            });
+            videoElement.srcObject = cameraStream;
+            videoElement.style.display = 'block';
+            placeholderUI.style.display = 'none';
+            await videoElement.play();
+            
+            canvasElement.width = videoElement.videoWidth || 640;
+            canvasElement.height = videoElement.videoHeight || 480;
+            
+            statusMsg.textContent = '✅ 摄像头已开启，正在分析...';
+            isProcessing = true;
+            processVideoFrame();
+        } catch (e) {
+            statusMsg.textContent = '❌ 摄像头启动失败: ' + e.message;
+            console.error('Camera error:', e);
+        }
+    }
+
+    function processVideoFrame() {
+        if (!isProcessing || !videoElement || videoElement.paused) return;
+        try {
+            if (poseInstance && videoElement.readyState >= 2) {
+                poseInstance.send({ image: videoElement });
+            }
+        } catch (e) {
+            console.warn('Send frame error:', e);
+        }
+        animationFrameId = requestAnimationFrame(processVideoFrame);
+    }
+
+    // 上传图片
+    uploadImageBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', async (e) => {
+        cleanAll();
+        if (!poseInstance) {
+            poseInstance = await initPose();
+            if (!poseInstance) {
+                statusMsg.textContent = '❌ Pose 初始化失败';
+                return;
+            }
+        }
+        const file = e.target.files[0];
+        if (!file) return;
+        const url = URL.createObjectURL(file);
+        previewImage.src = url;
+        previewImage.style.display = 'block';
+        placeholderUI.style.display = 'none';
+        previewImage.onload = () => {
+            canvasElement.width = previewImage.width;
+            canvasElement.height = previewImage.height;
+            statusMsg.textContent = '🔄 正在分析图片...';
+            try {
+                poseInstance.send({ image: previewImage });
+            } catch (err) {
+                statusMsg.textContent = '❌ 图片分析失败: ' + err.message;
+            }
+        };
+        previewImage.onerror = () => {
+            statusMsg.textContent = '❌ 图片加载失败';
+        };
+    });
+
+    // 上传视频
+    uploadVideoBtn.addEventListener('click', () => videoFileInput.click());
+    videoFileInput.addEventListener('change', async (e) => {
+        cleanAll();
+        if (!poseInstance) {
+            poseInstance = await initPose();
+            if (!poseInstance) {
+                statusMsg.textContent = '❌ Pose 初始化失败';
+                return;
+            }
+        }
+        const file = e.target.files[0];
+        if (!file) return;
+        const url = URL.createObjectURL(file);
+        videoElement.src = url;
+        videoElement.style.display = 'block';
+        placeholderUI.style.display = 'none';
+        videoElement.onloadedmetadata = () => {
+            canvasElement.width = videoElement.videoWidth || 640;
+            canvasElement.height = videoElement.videoHeight || 480;
+            statusMsg.textContent = '🔄 正在播放视频分析...';
+            isProcessing = true;
+            videoElement.play();
+            processVideoFrame();
+        };
+        videoElement.onerror = () => {
+            statusMsg.textContent = '❌ 视频加载失败';
+        };
+    });
+
+    stopBtn.addEventListener('click', cleanAll);
+    startCameraBtn.addEventListener('click', startCamera);
+    window.addEventListener('beforeunload', cleanAll);
+
+    // 自动初始化 Pose
+    async function autoInit() {
+        statusMsg.textContent = '🔄 正在加载 MediaPipe Pose...';
+        poseInstance = await initPose();
+        if (poseInstance) {
+            statusMsg.textContent = '✅ 系统就绪，请开启摄像头或上传文件';
+        }
+    }
+    autoInit();
+
+    console.log('[系统] Temporal工作流引擎 + 8节点智能决策分支已就绪');
+})();
+</script>
+</body>
+</html>
